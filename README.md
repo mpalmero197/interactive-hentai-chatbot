@@ -78,6 +78,12 @@ stores/              localStorage-backed character + chat stores
 - **No image assets.** Vector/Graphics silhouettes tinted by params.
 - Characters and threads persist in `localStorage`. Export/import JSON from Home.
 
+## Phone / public URL
+
+GitHub Pages: https://mpalmero197.github.io/interactive-hentai-chatbot/
+
+Open Play on a phone, grab the gold beads, pull straps and clothes. Data stays in that phone's localStorage.
+
 ## Deploy
 
 Vercel, or any Next.js host:
