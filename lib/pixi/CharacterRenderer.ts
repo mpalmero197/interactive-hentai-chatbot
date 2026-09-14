@@ -1,10 +1,13 @@
 import {
   Application,
+  Assets,
   Circle,
   Container,
   FederatedPointerEvent,
   Graphics,
   Rectangle,
+  Sprite,
+  Texture,
 } from "pixi.js";
 import {
   clamp01,
@@ -12,6 +15,22 @@ import {
   type ClothingPatch,
 } from "@/lib/clothing";
 import type { Character, CharacterAppearance } from "@/lib/types";
+import {
+  artUrl,
+  DEFAULT_THRESHOLDS,
+  faceFile,
+  PACK_BASE,
+  pullBand,
+  resolveArtRoot,
+  slideBand,
+  slideFile,
+  spriteWorldScale,
+  strapState,
+  tintFor,
+  topFileFor,
+  type ArtManifest,
+  type ArtThresholds,
+} from "./artPack";
 import { ClothSim, type SimKey } from "./ClothSim";
 import { hexToNum, mix, shade } from "./colors";
 
@@ -97,6 +116,30 @@ export class CharacterRenderer {
   bottomHit = new Graphics();
   underwearHit = new Graphics();
 
+  /** Layered PNG stack (when art pack loads). */
+  artRoot = new Container();
+  hairBackSprite: Sprite | null = null;
+  bodySprite: Sprite | null = null;
+  nudeDetailSprite: Sprite | null = null;
+  underwearSprite: Sprite | null = null;
+  bottomSprite: Sprite | null = null;
+  topSprite: Sprite | null = null;
+  faceSprite: Sprite | null = null;
+  hairFrontSprite: Sprite | null = null;
+  private artReady = false;
+  private artTextures = new Map<string, Texture>();
+  private artThresholds: ArtThresholds = { ...DEFAULT_THRESHOLDS };
+  private artAnchor = { x: 0.5, y: 0.62 };
+  private artCanvas = { w: 1024, h: 1536 };
+  private artBaseScale = spriteWorldScale(1536);
+  private artCrossfadeMs = 100;
+  private artFade: { sprite: Sprite; from: number; to: number; t: number; dur: number } | null =
+    null;
+  private lastTopFile: string | null = null;
+  private lastBottomFile: string | null = null;
+  private lastUnderwearFile: string | null = null;
+  private lastFaceFile: string | null = null;
+
   character: Character | null = null;
   onClothing?: (patch: ClothingPatch) => void;
   readonly sim = new ClothSim();
@@ -147,6 +190,7 @@ export class CharacterRenderer {
       this.hairBack,
       this.body,
       this.clothes,
+      this.artRoot,
       this.face,
       this.hairFront,
       this.handles,
@@ -166,6 +210,7 @@ export class CharacterRenderer {
 
     this.bindHits();
     this.bootSim(character);
+    await this.tryLoadArtPack("akari");
     this.redraw();
     this.fit();
 
@@ -287,6 +332,13 @@ export class CharacterRenderer {
       this.strapEnds(L, "right", top),
       delta,
     );
+    if (this.artFade) {
+      const f = this.artFade;
+      f.t += delta;
+      const u = Math.min(1, f.t / f.dur);
+      f.sprite.alpha = f.from + (f.to - f.from) * u;
+      if (u >= 1) this.artFade = null;
+    }
     this.redraw();
 
     if (this.drag === null && this.sim.all().some((s) => s.removed || s.settling)) {
@@ -378,11 +430,28 @@ export class CharacterRenderer {
     this.underwearHit.clear();
 
     this.drawBackdrop();
-    this.drawHairBack(this.hairBack, L, hair, a, c.isSleeping);
-    this.drawBody(this.body, L, skin, c.isSleeping);
-    this.drawClothes(this.clothes, L, a, topC, botC, undC, skin);
-    this.drawFace(this.face, L, skin, eye, a, c.isSleeping);
-    this.drawHairFront(this.hairFront, L, hair, a);
+
+    if (this.artReady) {
+      this.hairBack.visible = false;
+      this.body.visible = false;
+      this.clothes.visible = false;
+      this.face.visible = false;
+      this.hairFront.visible = false;
+      this.artRoot.visible = true;
+      this.syncSpritesFromSim(a, c.isSleeping);
+    } else {
+      this.artRoot.visible = false;
+      this.hairBack.visible = true;
+      this.body.visible = true;
+      this.clothes.visible = true;
+      this.face.visible = true;
+      this.hairFront.visible = true;
+      this.drawHairBack(this.hairBack, L, hair, a, c.isSleeping);
+      this.drawBody(this.body, L, skin, c.isSleeping);
+      this.drawClothes(this.clothes, L, a, topC, botC, undC, skin);
+      this.drawFace(this.face, L, skin, eye, a, c.isSleeping);
+      this.drawHairFront(this.hairFront, L, hair, a);
+    }
     this.placeHits(L, a);
   }
 
@@ -867,6 +936,339 @@ export class CharacterRenderer {
       g.ellipse(-32, L.headY + 30, 12, 28).fill(hair);
       g.ellipse(32, L.headY + 34, 12, 30).fill(hair);
     }
+  }
+
+
+  private async tryLoadArtPack(packId: string) {
+    this.artReady = false;
+    this.artTextures.clear();
+    this.artRoot.removeChildren();
+    this.hairBackSprite = null;
+    this.bodySprite = null;
+    this.nudeDetailSprite = null;
+    this.underwearSprite = null;
+    this.bottomSprite = null;
+    this.topSprite = null;
+    this.faceSprite = null;
+    this.hairFrontSprite = null;
+
+    const root = resolveArtRoot(packId);
+    let manifest: ArtManifest;
+    try {
+      const res = await fetch(artUrl(root, "manifest.json"), { cache: "no-cache" });
+      if (!res.ok) return;
+      manifest = (await res.json()) as ArtManifest;
+    } catch {
+      return;
+    }
+
+    this.artThresholds = { ...DEFAULT_THRESHOLDS, ...(manifest.thresholds || {}) };
+    this.artAnchor = {
+      x: manifest.anchor?.x ?? 0.5,
+      y: manifest.anchor?.y ?? 0.62,
+    };
+    this.artCanvas = {
+      w: manifest.canvas?.w ?? 1024,
+      h: manifest.canvas?.h ?? 1536,
+    };
+    this.artBaseScale = spriteWorldScale(this.artCanvas.h);
+
+    // Probe required body_base first — if missing, keep Graphics (no Asset spam).
+    try {
+      const probe = await fetch(artUrl(root, "body_base.png"), { method: "HEAD", cache: "no-cache" });
+      if (!probe.ok) {
+        // Some static hosts reject HEAD — try a ranged GET
+        const get = await fetch(artUrl(root, "body_base.png"), { cache: "no-cache" });
+        if (!get.ok) return;
+      }
+    } catch {
+      return;
+    }
+
+    const candidates = [
+      "body_base.png",
+      "hair_back.png",
+      "hair_front.png",
+      "body_nude_detail.png",
+      "face_awake.png",
+      "face_sleep.png",
+      "top_straps_both_up.png",
+      "top_left_down.png",
+      "top_right_down.png",
+      "top_both_down.png",
+      "top_pulled_mid.png",
+      "top_pulled_low.png",
+      "bottom_up.png",
+      "bottom_mid.png",
+      "bottom_low.png",
+      "underwear_up.png",
+      "underwear_mid.png",
+      "underwear_low.png",
+    ];
+
+    for (const file of candidates) {
+      const url = artUrl(root, file);
+      try {
+        // Skip known-missing optionals quickly via HEAD when possible
+        if (file !== "body_base.png") {
+          try {
+            const head = await fetch(url, { method: "HEAD", cache: "no-cache" });
+            if (!head.ok) continue;
+          } catch {
+            /* fall through to Assets.load */
+          }
+        }
+        const tex = (await Assets.load(url)) as Texture;
+        if (!tex || !tex.source || tex.width < 1 || tex.height < 1) continue;
+        this.artTextures.set(file, tex);
+      } catch {
+        // missing optional layer — skip
+      }
+    }
+
+    if (!this.artTextures.has("body_base.png")) {
+      this.artTextures.clear();
+      return;
+    }
+
+    const mk = (file: string | null): Sprite | null => {
+      if (!file) return null;
+      const tex = this.artTextures.get(file);
+      if (!tex) return null;
+      const s = new Sprite(tex);
+      s.anchor.set(this.artAnchor.x, this.artAnchor.y);
+      s.scale.set(this.artBaseScale);
+      s.position.set(0, 0);
+      return s;
+    };
+
+    this.hairBackSprite = mk("hair_back.png");
+    this.bodySprite = mk("body_base.png");
+    this.nudeDetailSprite = mk("body_nude_detail.png");
+    this.underwearSprite = mk("underwear_up.png") ?? mk("underwear_low.png");
+    this.bottomSprite = mk("bottom_up.png") ?? mk("bottom_low.png");
+    this.topSprite =
+      mk("top_straps_both_up.png") ??
+      mk("top_both_down.png") ??
+      mk("top_pulled_low.png");
+    this.faceSprite = mk("face_awake.png") ?? mk("face_sleep.png");
+    this.hairFrontSprite = mk("hair_front.png");
+
+    if (!this.bodySprite) {
+      this.artTextures.clear();
+      return;
+    }
+
+    const stack = [
+      this.hairBackSprite,
+      this.bodySprite,
+      this.nudeDetailSprite,
+      this.underwearSprite,
+      this.bottomSprite,
+      this.topSprite,
+      this.faceSprite,
+      this.hairFrontSprite,
+    ];
+    for (const s of stack) {
+      if (s) this.artRoot.addChild(s);
+    }
+    if (this.nudeDetailSprite) this.nudeDetailSprite.alpha = 0;
+
+    this.artReady = true;
+    this.lastTopFile = this.topSprite ? this.fileOf(this.topSprite) : null;
+    this.lastBottomFile = this.bottomSprite ? this.fileOf(this.bottomSprite) : null;
+    this.lastUnderwearFile = this.underwearSprite
+      ? this.fileOf(this.underwearSprite)
+      : null;
+    this.lastFaceFile = this.faceSprite ? this.fileOf(this.faceSprite) : null;
+  }
+
+  private fileOf(sprite: Sprite): string | null {
+    for (const [file, tex] of this.artTextures) {
+      if (sprite.texture === tex) return file;
+    }
+    return null;
+  }
+
+  private pickTex(preferred: string | null, fallbacks: string[]): Texture | null {
+    if (preferred && this.artTextures.has(preferred)) {
+      return this.artTextures.get(preferred)!;
+    }
+    for (const f of fallbacks) {
+      if (this.artTextures.has(f)) return this.artTextures.get(f)!;
+    }
+    return null;
+  }
+
+  private setSpriteTexture(sprite: Sprite | null, tex: Texture | null, crossfade = false) {
+    if (!sprite || !tex) {
+      if (sprite) sprite.visible = false;
+      return;
+    }
+    sprite.visible = true;
+    if (sprite.texture === tex) return;
+    if (crossfade && this.artCrossfadeMs > 0) {
+      sprite.texture = tex;
+      sprite.alpha = 0.35;
+      this.artFade = {
+        sprite,
+        from: 0.35,
+        to: 1,
+        t: 0,
+        dur: this.artCrossfadeMs,
+      };
+    } else {
+      sprite.texture = tex;
+      sprite.alpha = 1;
+    }
+  }
+
+  private syncSpritesFromSim(a: CharacterAppearance, sleeping: boolean) {
+    const t = this.artThresholds;
+    const top = a.outfit.top;
+    const bot = a.outfit.bottom;
+    const und = a.outfit.underwear;
+    const topOff = top.removed || top.type === "none";
+    const botOff = bot.removed || bot.type === "none";
+    const undOff = und.removed || und.type === "none";
+
+    // Tints
+    if (this.hairBackSprite) {
+      this.hairBackSprite.tint = tintFor(hexToNum(a.hair.color), PACK_BASE.hair);
+    }
+    if (this.hairFrontSprite) {
+      this.hairFrontSprite.tint = tintFor(hexToNum(a.hair.color), PACK_BASE.hair);
+    }
+    if (this.bodySprite) {
+      this.bodySprite.tint = tintFor(hexToNum(a.skinTone), PACK_BASE.skin);
+    }
+    if (this.nudeDetailSprite) {
+      this.nudeDetailSprite.tint = tintFor(hexToNum(a.skinTone), PACK_BASE.skin);
+    }
+    if (this.topSprite) {
+      this.topSprite.tint = tintFor(hexToNum(a.outfit.top.color), PACK_BASE.top);
+    }
+    if (this.bottomSprite) {
+      this.bottomSprite.tint = tintFor(hexToNum(a.outfit.bottom.color), PACK_BASE.bottom);
+    }
+    if (this.underwearSprite) {
+      this.underwearSprite.tint = tintFor(
+        hexToNum(a.outfit.underwear.color),
+        PACK_BASE.underwear,
+      );
+    }
+
+    // Face sleep swap
+    const faceName = faceFile(sleeping);
+    const faceTex = this.pickTex(faceName, ["face_awake.png", "face_sleep.png"]);
+    this.setSpriteTexture(
+      this.faceSprite,
+      faceTex,
+      faceName !== this.lastFaceFile,
+    );
+    this.lastFaceFile = faceName;
+
+    // Top state
+    const straps = strapState(top.leftStrap, top.rightStrap, t.strapDown);
+    const pBand = pullBand(top.pullDown, topOff, t);
+    let topName = topFileFor(pBand, straps);
+    const topTex = this.pickTex(
+      topName,
+      // MVP may omit mid — fall through to low / both_up
+      [
+        "top_pulled_low.png",
+        "top_pulled_mid.png",
+        "top_straps_both_up.png",
+        "top_both_down.png",
+        "top_left_down.png",
+        "top_right_down.png",
+      ],
+    );
+    if (pBand === "removed" || topOff) {
+      if (this.topSprite) this.topSprite.visible = false;
+      this.lastTopFile = null;
+    } else {
+      const changed = topName !== this.lastTopFile;
+      this.setSpriteTexture(this.topSprite, topTex, changed);
+      if (topName && topTex) this.lastTopFile = topName;
+      // Mild stretch while dragging past 1.0
+      if (this.topSprite && this.topSprite.visible) {
+        const stretch = Math.max(
+          top.leftStrap,
+          top.rightStrap,
+          top.pullDown,
+        );
+        const sy =
+          this.drag && stretch > 1
+            ? this.artBaseScale * (1 + Math.min(0.04, (stretch - 1) * 0.08))
+            : this.artBaseScale;
+        this.topSprite.scale.set(this.artBaseScale, sy);
+        this.topSprite.y = this.drag && stretch > 1 ? Math.min(6, (stretch - 1) * 8) : 0;
+      }
+    }
+
+    // Bottom
+    const bBand = slideBand(
+      bot.pulledDown,
+      botOff,
+      t.bottomMid,
+      t.bottomLow,
+      t.removed,
+    );
+    const botName = slideFile("bottom", bBand);
+    if (bBand === "removed" || botOff) {
+      if (this.bottomSprite) this.bottomSprite.visible = false;
+      this.lastBottomFile = null;
+    } else {
+      const botTex = this.pickTex(botName, ["bottom_up.png", "bottom_low.png", "bottom_mid.png"]);
+      this.setSpriteTexture(this.bottomSprite, botTex, botName !== this.lastBottomFile);
+      this.lastBottomFile = botName;
+      if (this.bottomSprite && this.bottomSprite.visible) {
+        const stretch = bot.pulledDown;
+        const sy =
+          this.drag === "bottom" && stretch > 1
+            ? this.artBaseScale * (1 + Math.min(0.04, (stretch - 1) * 0.08))
+            : this.artBaseScale;
+        this.bottomSprite.scale.set(this.artBaseScale, sy);
+      }
+    }
+
+    // Underwear
+    const uBand = slideBand(
+      und.pulledDown,
+      undOff,
+      t.underwearMid,
+      t.underwearLow,
+      t.removed,
+    );
+    const undName = slideFile("underwear", uBand);
+    if (uBand === "removed" || undOff) {
+      if (this.underwearSprite) this.underwearSprite.visible = false;
+      this.lastUnderwearFile = null;
+    } else {
+      const undTex = this.pickTex(undName, [
+        "underwear_up.png",
+        "underwear_low.png",
+        "underwear_mid.png",
+      ]);
+      this.setSpriteTexture(
+        this.underwearSprite,
+        undTex,
+        undName !== this.lastUnderwearFile,
+      );
+      this.lastUnderwearFile = undName;
+    }
+
+    // Nude detail when chest revealed / top off
+    const reveal = topOff
+      ? 1
+      : Math.max(top.leftStrap, top.rightStrap) * 0.25 + top.pullDown;
+    if (this.nudeDetailSprite) {
+      const show = reveal > 0.42 || topOff || pBand === "low" || pBand === "removed";
+      this.nudeDetailSprite.visible = true;
+      this.nudeDetailSprite.alpha = show ? Math.min(1, 0.35 + reveal) : 0;
+    }
+
   }
 
   private placeHits(L: BodyLayout, a: CharacterAppearance) {
