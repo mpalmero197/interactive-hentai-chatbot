@@ -1,0 +1,22 @@
+{
+  "id": "demo-redhead",
+  "name": "Akari",
+  "canvas": { "w": 1024, "h": 1536 },
+  "anchor": { "x": 0.5, "y": 0.62 },
+  "fullBodyStates": true,
+  "thresholds": {
+    "strapDown": 0.55,
+    "strapUp": 0.35,
+    "pullMid": 0.25,
+    "pullLow": 0.55,
+    "removed": 0.92,
+    "bottomMid": 0.35,
+    "bottomLow": 0.7,
+    "underwearMid": 0.35,
+    "underwearLow": 0.7
+  },
+  "layers": [
+    { "id": "full_body", "states": ["both_up", "left_down", "right_down", "both_down", "pulled_low", "bottom_low", "underwear_low", "sleep"], "z": 2 }
+  ],
+  "notes": "fullBodyStates: one discrete full-body PNG per sim bucket. Strap/sleep states are realistic gens; pulled/bottom/underwear-low are Pillow skin paint-overs."
+}
