@@ -1,4 +1,4 @@
-/** Layered PNG art-pack helpers for CharacterRenderer. */
+/** Layered PNG / full-body state art-pack helpers for CharacterRenderer. */
 
 export type StrapState = "both_up" | "left_down" | "right_down" | "both_down";
 export type PullBand = "cover" | "mid" | "low" | "removed";
@@ -22,6 +22,8 @@ export interface ArtManifest {
   canvas: { w: number; h: number };
   anchor: { x: number; y: number };
   thresholds: ArtThresholds;
+  /** When true, show one discrete full-body sprite instead of stacking garment layers. */
+  fullBodyStates?: boolean;
   layers: Array<{
     id: string;
     file?: string;
@@ -89,7 +91,7 @@ export function slideBand(
   return "up";
 }
 
-/** Top filename for a discrete state (pull wins over straps). */
+/** Top filename for layered mode (pull wins over straps). */
 export function topFileFor(
   band: PullBand,
   straps: StrapState,
@@ -116,6 +118,55 @@ export function slideFile(layer: "bottom" | "underwear", band: SlideBand): strin
 
 export function faceFile(sleeping: boolean): string {
   return sleeping ? "face_sleep.png" : "face_awake.png";
+}
+
+/**
+ * Pick a single full-body state PNG from ClothSim buckets.
+ * Strip progression (pull / removed) wins over sleep / straps.
+ */
+export function fullBodyFileFor(opts: {
+  sleeping: boolean;
+  straps: StrapState;
+  pull: PullBand;
+  bottom: SlideBand;
+  underwear: SlideBand;
+  topOff: boolean;
+  botOff: boolean;
+  undOff: boolean;
+}): string {
+  const topGone =
+    opts.topOff || opts.pull === "removed" || opts.pull === "low" || opts.pull === "mid";
+  const botGone =
+    opts.botOff || opts.bottom === "removed" || opts.bottom === "low";
+  const undGone =
+    opts.undOff || opts.underwear === "removed" || opts.underwear === "low";
+
+  // Nude / strip progression first so drag feedback stays visible.
+  if (topGone && botGone && undGone) {
+    return "underwear_low.png";
+  }
+  if (topGone && botGone) {
+    return "bottom_low.png";
+  }
+  if (topGone) {
+    return "top_pulled_low.png";
+  }
+
+  // Sleep uses full-body closed-eyes sprite while still dressed-ish.
+  if (opts.sleeping) {
+    return "face_sleep.png";
+  }
+
+  switch (opts.straps) {
+    case "left_down":
+      return "top_left_down.png";
+    case "right_down":
+      return "top_right_down.png";
+    case "both_down":
+      return "top_both_down.png";
+    default:
+      return "top_straps_both_up.png";
+  }
 }
 
 /** Resolve art root so GH Pages basePath and local `/` both work. */

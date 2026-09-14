@@ -3,6 +3,7 @@
   "name": "Akari",
   "canvas": { "w": 1024, "h": 1536 },
   "anchor": { "x": 0.5, "y": 0.62 },
+  "fullBodyStates": true,
   "thresholds": {
     "strapDown": 0.55,
     "strapUp": 0.35,
@@ -15,13 +16,7 @@
     "underwearLow": 0.7
   },
   "layers": [
-    { "id": "hair_back", "file": "hair_back.png", "z": 1 },
-    { "id": "body_base", "file": "body_base.png", "z": 2 },
-    { "id": "body_nude_detail", "file": "body_nude_detail.png", "z": 3, "reveal": "chestOrNude" },
-    { "id": "underwear", "states": ["up", "mid", "low"], "z": 4 },
-    { "id": "bottom", "states": ["up", "mid", "low"], "z": 5 },
-    { "id": "top", "states": ["both_up", "left_down", "right_down", "both_down", "pulled_mid", "pulled_low"], "z": 6 },
-    { "id": "face", "states": ["awake", "sleep"], "z": 7 },
-    { "id": "hair_front", "file": "hair_front.png", "z": 8 }
-  ]
+    { "id": "full_body", "states": ["both_up", "left_down", "right_down", "both_down", "pulled_low", "bottom_low", "underwear_low", "sleep"], "z": 2 }
+  ],
+  "notes": "fullBodyStates: one discrete full-body PNG per sim bucket. Strap/sleep states are realistic gens; pulled/bottom/underwear-low are Pillow skin paint-overs."
 }

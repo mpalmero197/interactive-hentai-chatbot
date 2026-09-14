@@ -1,9 +1,15 @@
-# Akari art pack
+# Akari art pack (full-body states)
 
-Drop Character Designer PNGs here (1024×1536 RGBA, pose-locked). Filenames must match `manifest.json`.
+`manifest.json` sets `fullBodyStates: true`. The renderer shows **one** full-body sprite driven by ClothSim thresholds (no garment layer stacking).
 
-**MVP required:** `body_base.png`, `body_nude_detail.png`, `hair_back.png`, `hair_front.png`, `face_awake.png`, `face_sleep.png`, `top_straps_both_up.png`, `top_left_down.png`, `top_right_down.png`, `top_both_down.png`, `top_pulled_low.png`, `bottom_up.png`, `bottom_low.png`, `underwear_up.png`, `underwear_low.png`.
+## Realistic states
+- `top_straps_both_up.png` / `body_base.png` / `face_awake.png`
+- `top_left_down.png`, `top_right_down.png`, `top_both_down.png`
+- `face_sleep.png` (full-body sleep, eyes closed)
 
-**Optional polish:** `top_pulled_mid.png`, `bottom_mid.png`, `underwear_mid.png`.
+## Approximate Pillow paint-overs
+- `top_pulled_low.png` — maroon top painted as skin (+ underbust remnant)
+- `bottom_low.png` — top + skirt painted; wine panty band
+- `underwear_low.png` — fuller nude paint-over
 
-Copy from `/workspace/afterglow-akari-assets/` when ready. Until `body_base.png` loads, the app keeps procedural Graphics silhouettes.
+Gold beads / hit targets / ClothSim are unchanged.
