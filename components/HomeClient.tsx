@@ -117,7 +117,7 @@ function CharacterCard({ character }: { character: Character }) {
       </div>
       <div className="mt-4 flex gap-2">
         <Link
-          href={`/play/${character.id}`}
+          href={`/play?id=${character.id}`}
           className="flex-1 rounded-xl bg-rose-500/90 py-2 text-center text-sm font-medium text-white"
         >
           Play

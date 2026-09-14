@@ -74,7 +74,7 @@ export function CharacterCreator({ initial }: Props) {
       createdAt: initial?.createdAt,
     });
     upsertCharacter(character);
-    router.push(`/play/${character.id}`);
+    router.push(`/play?id=${character.id}`);
   }
 
   function patchTop(partial: Partial<CharacterAppearance["outfit"]["top"]>) {
